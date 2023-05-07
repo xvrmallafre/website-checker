@@ -13,85 +13,82 @@ async function connectToDatabase() {
 }
 
 async function saveWebsiteStatus(url, status) {
-    const collection = await connectToDatabase();
-    await collection.insertOne({ 'url': url, 'status': status, timestamp: new Date() });
+    const collection = await connectToDatabase()
+    await collection.insertOne({ 'url': url, 'status': status, timestamp: new Date() })
 }
 
 async function updateWebsiteStatus(url, status) {
-    const collection = await connectToDatabase();
-    const existingDocument = await collection.findOne({ url });
+    const collection = await connectToDatabase()
+    const existingDocument = await collection.findOne({ url })
     if (existingDocument) {
-        await websiteStatusCollection.updateOne(
-            { _id: ObjectId(existingDocument._id) },
-            { $set: { 'status': status, timestamp: new Date() } }
-        );
+        await collection.updateOne(
+            { _id: new ObjectId(existingDocument._id) },
+            {
+                $set: { 'status': status, timestamp: new Date() }
+            })
     } else {
-        await saveWebsiteStatus(url, status, collection);
+        await saveWebsiteStatus(url, status, collection)
     }
 }
 
-async function checkWebsite(url, searchText) {
+async function setStatus(existingDocument, url, status) {
+    if (existingDocument) {
+        if (existingDocument.status !== status) {
+            await updateWebsiteStatus(url, status)
+            return true
+        }
+    } else {
+        await saveWebsiteStatus(url, status)
+        return true
+    }
+}
 
-    const collection = await connectToDatabase();
-    const existingDocument = await collection.findOne({ url });
+async function checkWebsite(url, searchText, checkStatus = false) {
+    const collection = await connectToDatabase()
+    const existingDocument = await collection.findOne({ url })
+    let modification = false
 
-    if (!existingDocument) {
-        return axios.get(url)
-            .then(async response => {
-                if (response.status !== 200) {
-                    if (response.status == 429) {
-                        await saveWebsiteStatus(url, 'rate_limited', collection);
+    return axios.get(url)
+        .then(async response => {
+            if (response.status !== 200) {
+                if (response.status === 429) {
+                    if (checkStatus) {
+                        modification = await setStatus(existingDocument, url, 'rate_limited')
+                    }
 
+                    if (modification || !checkStatus) {
                         return `La web está sufriendo algún tipo de ataque (ERR_CODE: ${response.status})`
-                    } else {
-                        await saveWebsiteStatus(url, 'offline', collection);
-
+                    }
+                } else {
+                    if (checkStatus) {
+                        modification = await setStatus(existingDocument, url, 'offline')
+                    }
+                    if (modification || !checkStatus) {
                         return `${url} está caída con código de estado ${response.status}`
                     }
-                } else if (!response.data.includes(searchText)) {
-                    await saveWebsiteStatus(url, 'text_not_found', collection);
+                }
+            } else if (!response.data.includes(searchText)) {
+                if (checkStatus) {
+                    modification = await setStatus(existingDocument, url, 'text_not_found')
+                }
 
+                if (modification || !checkStatus) {
                     return `El texto de control no se ha encontrado en la URL ${url}`
-                } else {
-                    await saveWebsiteStatus(url, 'online', collection);
+                }
+            } else {
+                if (checkStatus) {
+                    modification = await setStatus(existingDocument, url, 'online')
+                }
 
+                if (modification || !checkStatus) {
                     return `La página ${url} está funcionando correctamente`
                 }
-            }).catch(error => {
-                bot.sendMessage(process.env.TELEGRAM_CHAT_ID, `Error al acceder a ${url}: ${error.message}`)
-            })
-    } else {
-        return axios.get(url)
-            .then(async response => {
-                if (response.status !== 200) {
-                    if (existingDocument.status === 'online') {
-                        if (response.status == 429) {
-                            await updateWebsiteStatus(url, 'rate_limited');
-
-                            return `La web está sufriendo algún tipo de ataque (ERR_CODE: ${response.status})`
-                        } else {
-                            await updateWebsiteStatus(url, 'offline');
-
-                            return `${url} está caída con código de estado ${response.status}`
-                        }
-                    }
-                } else if (!response.data.includes(searchText)) {
-                    if (existingDocument.status === 'online') {
-                        await updateWebsiteStatus(url, 'text_not_found');
-
-                        return `El texto de control no se ha encontrado en la URL ${url}`
-                    }
-                } else {
-                    if (existingDocument.status !== 'online') {
-                        await updateWebsiteStatus(url, 'online');
-
-                        return `La página ${url} está funcionando correctamente`
-                    }
-                }
-            }).catch(error => {
-                bot.sendMessage(process.env.TELEGRAM_CHAT_ID, `Error al acceder a ${url}: ${error.message}`)
-            })
-    }
+            }
+        }).catch(error => {
+            console.log(error)
+            bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, `Error al acceder a ${url}: ${error.message}`)
+            return
+        })
 }
 
 bot.use((ctx, next) => {
@@ -117,9 +114,9 @@ bot.command('check', async (ctx) => {
 bot.launch()
 
 setInterval(async () => {
-    const response = await checkWebsite(process.env.URL, process.env.SEARCH_TEXT)
+    const response = await checkWebsite(process.env.URL, process.env.SEARCH_TEXT, true)
 
-    if (typeof response !== 'boolean') {
+    if (typeof response === 'string') {
         bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, response)
     }
 }, 1000 * process.env.INTERVAL)
