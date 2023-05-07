@@ -14,7 +14,7 @@ async function connectToDatabase() {
 
 async function saveWebsiteStatus(url, status) {
     const collection = await connectToDatabase();
-    await collection.insertOne({ url, status, timestamp: new Date() });
+    await collection.insertOne({ 'url': url, 'status': status, timestamp: new Date() });
 }
 
 async function updateWebsiteStatus(url, status) {
@@ -23,43 +23,75 @@ async function updateWebsiteStatus(url, status) {
     if (existingDocument) {
         await websiteStatusCollection.updateOne(
             { _id: ObjectId(existingDocument._id) },
-            { $set: { status, timestamp: new Date() } }
+            { $set: { 'status': status, timestamp: new Date() } }
         );
     } else {
         await saveWebsiteStatus(url, status, collection);
     }
 }
 
-async function saveWebsiteStatus(url, status, collection) {
-    await collection.insertOne({
-        url,
-        status,
-        timestamp: new Date()
-    });
-}
-
 async function checkWebsite(url, searchText) {
 
     const collection = await connectToDatabase();
-    //const existingDocument = await collection.findOne({ url });
+    const existingDocument = await collection.findOne({ url });
 
-    return axios.get(url)
-        .then(response => {
-            if (response.status !== 200) {
-                if (response.status == 429) {
+    if (!existingDocument) {
+        return axios.get(url)
+            .then(async response => {
+                if (response.status !== 200) {
+                    if (response.status == 429) {
+                        await saveWebsiteStatus(url, 'rate_limited', collection);
 
-                    return `La web está sufriendo algún tipo de ataque`
+                        return `La web está sufriendo algún tipo de ataque (ERR_CODE: ${response.status})`
+                    } else {
+                        await saveWebsiteStatus(url, 'offline', collection);
+
+                        return `${url} está caída con código de estado ${response.status}`
+                    }
+                } else if (!response.data.includes(searchText)) {
+                    await saveWebsiteStatus(url, 'text_not_found', collection);
+
+                    return `El texto de control no se ha encontrado en la URL ${url}`
                 } else {
-                    return `${url} está caído con código de estado ${response.status}`
+                    await saveWebsiteStatus(url, 'online', collection);
+
+                    return `La página ${url} está funcionando correctamente`
                 }
-            } else if (!response.data.includes(searchText)) {
-                return `El texto de control no se ha encontrado en la URL ${url}`
-            } else {
-                return `La página ${url} está funcionando correctamente`
-            }
-        }).catch(error => {
-            bot.sendMessage(process.env.TELEGRAM_CHAT_ID, `Error al acceder a ${url}: ${error.message}`)
-        })
+            }).catch(error => {
+                bot.sendMessage(process.env.TELEGRAM_CHAT_ID, `Error al acceder a ${url}: ${error.message}`)
+            })
+    } else {
+        return axios.get(url)
+            .then(async response => {
+                if (response.status !== 200) {
+                    if (existingDocument.status === 'online') {
+                        if (response.status == 429) {
+                            await updateWebsiteStatus(url, 'rate_limited');
+
+                            return `La web está sufriendo algún tipo de ataque (ERR_CODE: ${response.status})`
+                        } else {
+                            await updateWebsiteStatus(url, 'offline');
+
+                            return `${url} está caída con código de estado ${response.status}`
+                        }
+                    }
+                } else if (!response.data.includes(searchText)) {
+                    if (existingDocument.status === 'online') {
+                        await updateWebsiteStatus(url, 'text_not_found');
+
+                        return `El texto de control no se ha encontrado en la URL ${url}`
+                    }
+                } else {
+                    if (existingDocument.status !== 'online') {
+                        await updateWebsiteStatus(url, 'online');
+
+                        return `La página ${url} está funcionando correctamente`
+                    }
+                }
+            }).catch(error => {
+                bot.sendMessage(process.env.TELEGRAM_CHAT_ID, `Error al acceder a ${url}: ${error.message}`)
+            })
+    }
 }
 
 bot.use((ctx, next) => {
@@ -87,5 +119,7 @@ bot.launch()
 setInterval(async () => {
     const response = await checkWebsite(process.env.URL, process.env.SEARCH_TEXT)
 
-    bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, response)
+    if (typeof response !== 'boolean') {
+        bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, response)
+    }
 }, 1000 * process.env.INTERVAL)
