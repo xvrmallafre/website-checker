@@ -6,10 +6,16 @@ const { ObjectId, MongoClient } = require('mongodb')
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN)
 axios.defaults.headers.common['User-Agent'] = `(${process.env.BOTNAME})`
 
+let client = null
+
 async function connectToDatabase() {
-    const client = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    client = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
     await client.connect()
     return client.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION)
+}
+
+async function disconnectFromDatabase() {
+    await client.close()
 }
 
 async function saveWebsiteStatus(url, status) {
@@ -27,7 +33,7 @@ async function updateWebsiteStatus(url, status) {
                 $set: { 'status': status, timestamp: new Date() }
             })
     } else {
-        await saveWebsiteStatus(url, status, collection)
+        await saveWebsiteStatus(url, status)
     }
 }
 
@@ -35,12 +41,16 @@ async function setStatus(existingDocument, url, status) {
     if (existingDocument) {
         if (existingDocument.status !== status) {
             await updateWebsiteStatus(url, status)
+            await disconnectFromDatabase()
             return true
         }
     } else {
         await saveWebsiteStatus(url, status)
+        await disconnectFromDatabase()
         return true
     }
+
+    await disconnectFromDatabase()
 }
 
 async function checkWebsite(url, searchText, checkStatus = false) {
