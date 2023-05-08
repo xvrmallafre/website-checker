@@ -2,12 +2,12 @@ module.exports = {
     apps: [
         {
             name: 'websiteCheckerBot',
+            mode: 'fork',
             script: 'index.js',
             watch: true,
             ignore_watch: ['node_modules', 'logs'],
-            instances: 1,
             autorestart: true,
-            max_memory_restart: '1G',
+            max_restarts: 5,
             env: {
                 NODE_ENV: 'production'
             }
