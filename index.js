@@ -60,24 +60,7 @@ async function checkWebsite(url, searchText, checkStatus = false) {
 
     return axios.get(url)
         .then(async response => {
-            if (response.status !== 200) {
-                if (response.status === 429) {
-                    if (checkStatus) {
-                        modification = await setStatus(existingDocument, url, 'rate_limited')
-                    }
-
-                    if (modification || !checkStatus) {
-                        return `La web está sufriendo algún tipo de ataque (ERR_CODE: ${response.status})`
-                    }
-                } else {
-                    if (checkStatus) {
-                        modification = await setStatus(existingDocument, url, 'offline')
-                    }
-                    if (modification || !checkStatus) {
-                        return `${url} está caída con código de estado ${response.status}`
-                    }
-                }
-            } else if (!response.data.includes(searchText)) {
+            if (!response.data.includes(searchText)) {
                 if (checkStatus) {
                     modification = await setStatus(existingDocument, url, 'text_not_found')
                 }
@@ -94,10 +77,23 @@ async function checkWebsite(url, searchText, checkStatus = false) {
                     return `La página ${url} está funcionando correctamente`
                 }
             }
-        }).catch(error => {
-            console.log(error)
-            bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, `Error al acceder a ${url}: ${error.message}`)
-            return
+        }).catch(async err => {
+            if (err.response.status === 429) {
+                if (checkStatus) {
+                    modification = await setStatus(existingDocument, url, 'rate_limited')
+                }
+
+                if (modification || !checkStatus) {
+                    return `La web está sufriendo algún tipo de ataque (ERR_CODE: ${err.response.status})`
+                }
+            } else {
+                if (checkStatus) {
+                    modification = await setStatus(existingDocument, url, 'offline')
+                }
+                if (modification || !checkStatus) {
+                    return `${url} está caída (ERR_CODE: ${err.response.status})`
+                }
+            }
         })
 }
 
