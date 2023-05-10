@@ -6,16 +6,18 @@ const { ObjectId, MongoClient } = require('mongodb')
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN)
 axios.defaults.headers.common['User-Agent'] = `(${process.env.BOTNAME})`
 
-let client = null
+let dbClient = null
+let queue = true
+const interval = (process.env.INTERVAL && !isNaN(process.env.INTERVAL) && process.env.INTERVAL >= 4) ? process.env.INTERVAL : 7
 
 async function connectToDatabase() {
-    client = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-    await client.connect()
-    return client.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION)
+    dbClient = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    await dbClient.connect()
+    return dbClient.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION)
 }
 
 async function disconnectFromDatabase() {
-    await client.close()
+    await dbClient.close()
 }
 
 async function saveWebsiteStatus(url, status) {
@@ -54,6 +56,7 @@ async function setStatus(existingDocument, url, status) {
 }
 
 async function checkWebsite(url, searchText, checkStatus = false) {
+    queue = false
     const collection = await connectToDatabase()
     const existingDocument = await collection.findOne({ url })
     let modification = false
@@ -120,9 +123,13 @@ bot.command('check', async (ctx) => {
 bot.launch()
 
 setInterval(async () => {
-    const response = await checkWebsite(process.env.URL, process.env.SEARCH_TEXT, true)
+    if (queue) {
+        const response = await checkWebsite(process.env.URL, process.env.SEARCH_TEXT, true)
 
-    if (typeof response === 'string') {
-        bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, response)
+        if (typeof response === 'string') {
+            bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, response)
+        }
+
+        queue = true
     }
-}, 1000 * process.env.INTERVAL)
+}, 1000 * interval)
