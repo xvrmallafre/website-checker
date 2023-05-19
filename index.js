@@ -37,7 +37,7 @@ async function getDbCollection() {
     try {
         await dbCollection.findOne({});
     } catch (err) {
-        bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, 'Database connection lost. Reconnecting...')
+        console.log('Database connection lost. Reconnecting...')
         await dbClient.connect()
     }
 
