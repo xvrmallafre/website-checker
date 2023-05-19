@@ -7,26 +7,50 @@ const bot = new Telegraf(process.env.TELEGRAM_TOKEN)
 axios.defaults.headers.common['User-Agent'] = `(${process.env.BOTNAME})`
 
 let dbClient = null
+let dbCollection = null
 let queue = true
 const interval = (process.env.INTERVAL && !isNaN(process.env.INTERVAL) && process.env.INTERVAL >= 4) ? process.env.INTERVAL : 7
 
-async function connectToDatabase() {
-    dbClient = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-    await dbClient.connect()
-    return dbClient.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION)
+async function cleanup() {
+    console.log('Cleaning up...')
+    if (dbClient) {
+        await dbClient.close()
+    }
 }
 
-async function disconnectFromDatabase() {
-    await dbClient.close()
+process.on('beforeExit', cleanup)
+process.on('SIGINT', async () => {
+    await cleanup()
+    process.exit(0)
+});
+
+async function getDbCollection() {
+    if (dbClient && dbClient.isConnected()) {
+        if (dbCollection) {
+            return dbCollection
+        }
+        dbCollection = dbClient.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION)
+        return dbCollection
+    } else {
+        try {
+            dbClient = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+            await dbClient.connect()
+            dbCollection = dbClient.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION)
+            return dbCollection
+        } catch (err) {
+            bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, 'Failed to connect to MongoDB')
+            throw err;
+        }
+    }
 }
 
 async function saveWebsiteStatus(url, status) {
-    const collection = await connectToDatabase()
+    const collection = await getDbCollection()
     await collection.insertOne({ 'url': url, 'status': status, timestamp: new Date() })
 }
 
 async function updateWebsiteStatus(url, status) {
-    const collection = await connectToDatabase()
+    const collection = await getDbCollection()
     const existingDocument = await collection.findOne({ url })
     if (existingDocument) {
         await collection.updateOne(
@@ -43,21 +67,17 @@ async function setStatus(existingDocument, url, status) {
     if (existingDocument) {
         if (existingDocument.status !== status) {
             await updateWebsiteStatus(url, status)
-            await disconnectFromDatabase()
             return true
         }
     } else {
         await saveWebsiteStatus(url, status)
-        await disconnectFromDatabase()
         return true
     }
-
-    await disconnectFromDatabase()
 }
 
 async function checkWebsite(url, searchText, checkStatus = false) {
     queue = false
-    const collection = await connectToDatabase()
+    const collection = await getDbCollection()
     const existingDocument = await collection.findOne({ url })
     let modification = false
 
