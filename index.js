@@ -25,23 +25,23 @@ process.on('SIGINT', async () => {
 });
 
 async function getDbCollection() {
-    if (dbClient && dbClient.isConnected()) {
-        if (dbCollection) {
-            return dbCollection
-        }
-        dbCollection = dbClient.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION)
-        return dbCollection
-    } else {
-        try {
-            dbClient = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-            await dbClient.connect()
-            dbCollection = dbClient.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION)
-            return dbCollection
-        } catch (err) {
-            bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, 'Failed to connect to MongoDB')
-            throw err;
-        }
+    if (!dbClient) {
+        dbClient = new MongoClient(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+        await dbClient.connect();
     }
+
+    if (!dbCollection) {
+        dbCollection = dbClient.db(process.env.MONGODB_NAME).collection(process.env.MONGODB_COLLECTION);
+    }
+
+    try {
+        await dbCollection.findOne({});
+    } catch (err) {
+        bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID, 'Database connection lost. Reconnecting...')
+        await dbClient.connect()
+    }
+
+    return dbCollection
 }
 
 async function saveWebsiteStatus(url, status) {
