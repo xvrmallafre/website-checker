@@ -4,7 +4,7 @@ const axios = require('axios')
 const { ObjectId, MongoClient } = require('mongodb')
 
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN)
-axios.defaults.headers.common['User-Agent'] = `(${process.env.BOTNAME})`
+axios.defaults.headers.common['User-Agent'] = `Mozilla/5.0+(compatible; ${process.env.BOTNAME})`
 
 let dbClient = null
 let dbCollection = null
