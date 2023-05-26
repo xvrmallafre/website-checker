@@ -1,7 +1,8 @@
-require('dotenv').config()
 const { Telegraf } = require('telegraf')
-const axios = require('axios')
 const { ObjectId, MongoClient } = require('mongodb')
+const axios = require('axios')
+const log = require('fancy-log')
+require('dotenv').config()
 
 const bot = new Telegraf(process.env.TELEGRAM_TOKEN)
 axios.defaults.headers.common['User-Agent'] = `Mozilla/5.0+(compatible; ${process.env.BOTNAME})`
@@ -12,7 +13,7 @@ let queue = true
 const interval = (process.env.INTERVAL && !isNaN(process.env.INTERVAL) && process.env.INTERVAL >= 4) ? process.env.INTERVAL : 7
 
 async function cleanup() {
-    console.log('Cleaning up...')
+    log('Cleaning up...')
     if (dbClient) {
         await dbClient.close()
     }
@@ -37,7 +38,7 @@ async function getDbCollection() {
     try {
         await dbCollection.findOne({});
     } catch (err) {
-        console.log('Database connection lost. Reconnecting...')
+        log('Database connection lost. Reconnecting...')
         await dbClient.connect()
     }
 
@@ -101,6 +102,10 @@ async function checkWebsite(url, searchText, checkStatus = false) {
                 }
             }
         }).catch(async err => {
+            if (!err.response) {
+                log('En el catch, no se detecta err.response')
+            }
+
             if (err.response.status === 429) {
                 if (checkStatus) {
                     modification = await setStatus(existingDocument, url, 'rate_limited')

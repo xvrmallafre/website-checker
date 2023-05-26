@@ -11,6 +11,7 @@
   "dependencies": {
     "axios": "^1.4.0",
     "dotenv": "^16.0.3",
+    "fancy-log": "^2.0.0",
     "mongodb": "^5.4.0",
     "telegraf": "^4.12.2"
   }
