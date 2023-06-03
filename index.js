@@ -65,15 +65,14 @@ async function updateWebsiteStatus(url, status) {
 }
 
 async function setStatus(existingDocument, url, status) {
-    if (existingDocument) {
-        if (existingDocument.status !== status) {
-            await updateWebsiteStatus(url, status)
-            return true
-        }
-    } else {
+    if (existingDocument && existingDocument?.status !== status) {
+        await updateWebsiteStatus(url, status)
+        return true
+    } else if (!existingDocument) {
         await saveWebsiteStatus(url, status)
         return true
     }
+    return false
 }
 
 async function checkWebsite(url, searchText, checkStatus = false) {
@@ -84,43 +83,44 @@ async function checkWebsite(url, searchText, checkStatus = false) {
 
     return axios.get(url)
         .then(async response => {
-            if (!response.data.includes(searchText)) {
-                if (checkStatus) {
-                    modification = await setStatus(existingDocument, url, 'text_not_found')
-                }
+            let successMessage
+            let successStatus
 
-                if (modification || !checkStatus) {
-                    return `El texto de control no se ha encontrado en la URL ${url}`
-                }
+            if (typeof response.data === 'object') {
+                response.data = JSON.stringify(response.data)
+            }
+
+            if (!response?.data?.includes(searchText)) {
+                successMessage = `El texto de control no se ha encontrado en la URL ${url}`
+                successStatus = 'text_not_found'
             } else {
-                if (checkStatus) {
-                    modification = await setStatus(existingDocument, url, 'online')
-                }
-
-                if (modification || !checkStatus) {
-                    return `La página ${url} está funcionando correctamente`
-                }
+                successMessage = `La página ${url} está funcionando correctamente`
+                successStatus = 'online'
+            }
+            if (checkStatus) {
+                modification = await setStatus(existingDocument, url, successStatus)
+            }
+            if (modification || !checkStatus) {
+                return successMessage
             }
         }).catch(async err => {
+            let errorMessage
+            let errorStatus
             if (!err.response) {
-                log('En el catch, no se detecta err.response')
-            }
-
-            if (err.response.status === 429) {
-                if (checkStatus) {
-                    modification = await setStatus(existingDocument, url, 'rate_limited')
-                }
-
-                if (modification || !checkStatus) {
-                    return `La web está sufriendo algún tipo de ataque (ERR_CODE: ${err.response.status})`
-                }
+                errorMessage = `${url} está caída (TIMEOUT)`
+                errorStatus = 'timeout'
+            } else if (err.response.status === 429) {
+                errorMessage = `La web está sufriendo algún tipo de ataque (ERR_CODE: ${err.response.status})`
+                errorStatus = 'rate_limited'
             } else {
-                if (checkStatus) {
-                    modification = await setStatus(existingDocument, url, 'offline')
-                }
-                if (modification || !checkStatus) {
-                    return `${url} está caída (ERR_CODE: ${err.response.status})`
-                }
+                errorMessage = `${url} está caída (ERR_CODE: ${err.response.status})`
+                errorStatus = 'offline'
+            }
+            if (checkStatus) {
+                modification = await setStatus(existingDocument, url, errorStatus)
+            }
+            if (modification || !checkStatus) {
+                return errorMessage
             }
         })
 }
